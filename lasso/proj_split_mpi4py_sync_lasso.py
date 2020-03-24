@@ -4,7 +4,7 @@ import ps_lasso as ls
 from matplotlib import pyplot as plt
 
 
-def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
+def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma):
     '''
     projective splitting applied to the lasso problem. This is a synchronous parallel
     version using MPI.
@@ -21,7 +21,7 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
     (n,d) = A.shape
     partition = ls.create_simple_partition(n,size)
 
-    print("Process "+str(i)+" of "+str(size)+". Norm of A = "+str(np.linalg.norm(A)))
+    #print("Process "+str(i)+" of "+str(size)+". Norm of A = "+str(np.linalg.norm(A)))
 
     # each processor has its own local redundant copy of z
     z = np.zeros(d)
@@ -35,14 +35,21 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
     if i == 0:
         normGrads = []
         phis = []
+        func_vals = []
 
     for k in range(iter):
         if i == 0:
             if k%100 == 0:
                 print("iter "+str(k))
+                print("gamma = "+str(gamma))
 
         # block update
         [xi,yi,rho] = update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
+
+        if adapt_gamma:
+            Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
+            gammai = Li**2 # local adaptive choice for the primal-dual scaling parameter
+            gamma = Comm.allreduce(gammai)/size # to choose a gamma, take the average across all choices for each block
 
         # projection updates
         phi_i = (z - xi).dot(yi - wi)
@@ -56,9 +63,10 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
 
         normGrad = gamma**(-1)*np.linalg.norm(sumy,2)**2 + sum_norm_ui_sq
 
-        z = z - (gamma**(-1)*phi/normGrad)*sumy
 
-        wi = wi - (phi/normGrad)*ui
+        if abs(normGrad)>1e-20:
+            z = z - (gamma**(-1)*phi/normGrad)*sumy
+            wi = wi - (phi/normGrad)*ui
 
         #phi_i = (z - xi).dot(yi - wi)
         #phi_after = Comm.allreduce(phi_i)
@@ -66,17 +74,29 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
         if i == 0:
             normGrads.append(normGrad)
             phis.append(phi)
+            func_vals.append(lasso_val(z,A,b,lam))
             #phis_after.append(phi_after)
         #print("P"+str(i)+": z shape = "+str(z.shape))
         #print("P"+str(i)+": wi shape = "+str(wi.shape))
 
     if i == 0:
-        plt.semilogy(normGrads)
-        plt.title("norm of gradients of phi")
-        plt.show()
-        plt.semilogy(phis)
-        plt.title("phis (should be positive)")
-        plt.show()
+        doPlots = True 
+        if doPlots:
+            plt.plot(func_vals)
+            plt.title('function values')
+            plt.show()
+            plt.semilogy(phis)
+            plt.title("phis (should be positive)")
+            plt.show()
+            plt.semilogy(normGrads)
+            plt.title("norm of gradients of phi")
+            plt.show()
+        nnz = sum(abs(z)>1e-10)
+        print("z nnz = "+str(nnz))
+
+
+def lasso_val(z,A,b,lam):
+    return 0.5*np.linalg.norm(A.dot(z)-b,2)**2 + lam*np.linalg.norm(z)
 
 def proxL1(a,thresh):
     x = (a> thresh)*(a-thresh)
