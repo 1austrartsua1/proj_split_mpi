@@ -21,6 +21,7 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta):
     (n,d) = A.shape
     partition = ls.create_simple_partition(n,size)
 
+    print("Process "+str(i)+" of "+str(size)+". Norm of A = "+str(np.linalg.norm(A)))
 
     # each processor has its own local redundant copy of z
     z = np.zeros(d)
