@@ -4,29 +4,21 @@ import numpy as np
 A = np.load('A.npy')
 b = np.load('b.npy')
 
-lam = 12.0
+lam = 10.0
 print('lam '+str(lam))
 doPlots = True
 
-#factor = 50
-#alpha = factor*(1.0/60)
-alpha = 1e0
-lam = lam*alpha**2
-A = alpha*A
-b = alpha*b
 
 #[_,s,_] = np.linalg.svd(A)
 #print('largest singular value squared = '+str(s[0]**2))
 
-iter = 4000
+iter = 1000
 
 rho = 1e0
-#gamma =20000.0
-gamma = 30.0
-adapt_gamma = "NewBalanced"
+gamma = 1e4
+adapt_gamma = False
 print('adapt gamma '+str(adapt_gamma))
-#gamma = factor**4
-#print("gamma = "+str(gamma))
+
 Delta = 1e0
 psample = -1
 

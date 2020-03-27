@@ -44,12 +44,20 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
         func_vals = []
 
         print_freq = int(iter/10)
+        ratio_gradz2w = []
+
+    norm_sumy_sq = 0.0
+    sum_norm_ui_sq = 0.0
+
     for k in range(iter):
         if i == 0:
             # Processor 0 will print the iteration number
             if k%(print_freq) == 0:
                 print("iter "+str(k))
                 print("gamma = "+str(gamma))
+
+        if adapt_gamma == "residBalanced":
+                gamma = resid_balance(gamma,norm_sumy_sq,sum_norm_ui_sq,size)
 
         # block update using each processor's slice of the data.
         [xi,yi,rho] = update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
@@ -63,6 +71,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
         ui = xi - xav # in this version, we are using the simplified paper formulation of the hyperplane
         norm_ui_sq = np.linalg.norm(ui,2)**2
         sum_norm_ui_sq = Comm.allreduce(norm_ui_sq) # scalar all reduce
+
+
 
         if adapt_gamma == "Lipschitz":
             Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
@@ -90,6 +100,7 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
             normGrads.append(normGrad)
             phis.append(phi)
             func_vals.append(lasso_val(z,A,b,lam))
+            ratio_gradz2w.append(norm_sumy_sq/sum_norm_ui_sq)
             #phis_after.append(phi_after)
 
     #if i == 0:
@@ -105,19 +116,33 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
         print("final function value "+str(func_vals[-1]))
 
         if doPlots:
-            plt_iter = 1000
-            fig,ax = plt.subplots(1,3)
-            ax[0].plot(func_vals[0:plt_iter])
-            ax[0].set_title('function values')
-            ax[1].semilogy(range(plt_iter) , np.array(func_vals[0:plt_iter]) - func_vals[-1])
-            ax[1].set_title('function vals')
-            ax[2].semilogy(phis[0:plt_iter])
-            ax[2].set_title("phis (should be positive)")
-            #plt.show()
+            plt_iter = iter
+            fig,ax = plt.subplots(2,2)
+            ax[0,0].plot(func_vals[0:plt_iter])
+            ax[0,0].set_title('function values')
+            ax[0,1].semilogy(range(plt_iter) , np.array(func_vals[0:plt_iter]) - func_vals[-1])
+            ax[0,1].set_title('function vals')
+            ax[1,0].semilogy(phis[0:plt_iter])
+            ax[1,0].set_title("phis (should be positive)")
+            ax[1,1].plot(ratio_gradz2w)
+            ax[1,1].set_title('gradz/gradw')
             #plt.semilogy(normGrads)
             #plt.title("norm of gradients of phi")
             plt.show()
 
+def resid_balance(gamma,gradz_sq,gradw_sq,n):
+    mu = 10.0
+    tau = 2.0
+    maxGamma = 1e6
+    minGamma = 1e-6
+    #print("gradw^2/n = "+str(gradw_sq/n))
+    #print("gradz^2 = "+str(gradz_sq))
+    if (gradw_sq/n >= mu*gradz_sq):
+        gamma = min(maxGamma,gamma*tau)
+    elif(mu*gradw_sq/n <= gradz_sq):
+        gamma = max(minGamma,gamma/tau)
+
+    return gamma
 
 def lasso_val(z,A,b,lam):
     return 0.5*np.linalg.norm(A.dot(z)-b,2)**2 + lam*np.linalg.norm(z,1)
