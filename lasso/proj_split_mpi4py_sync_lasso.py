@@ -21,13 +21,21 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
     (n,d) = A.shape
     partition = ls.create_simple_partition(n,size)
     # if size does not divide n, the final slice is enlargened to include the remainder
+    if i == 0:
+        if adapt_gamma == "Sample":
+            if p != -1:
+                # estimate the primal-dual scaling by sampling p points and measuring ratio
+                # of primal norm to dual norm. If p equals -1, don't do this.
+                av_ratio_sq = ls.estimate_pd_scale(A[partition[i]],b[partition[i]],lam/size,p)
+                print("P"+str(i)+" the average ratio squared from "+str(p)+" points is "+str(av_ratio_sq))
+                #gamma = (1.0/size)*Comm.Allreduce(av_ratio_sq)
+                gamma = av_ratio_sq
+                print('gamma via sample = '+str(gamma))
 
-    if adapt_gamma == "Sample":
-        if p != -1:
-            # estimate the primal-dual scaling by sampling p points and measuring ratio
-            # of primal norm to dual norm. If p equals -1, don't do this.
-            av_ratio_sq = ls.estimate_pd_scale(A[partition[i]],b[partition[i]],lam/size,p)
-            print("P"+str(i)+" the average ratio squared from "+str(p)+" points is "+str(av_ratio_sq))
+
+    #Comm.Bcast(gamma,root = 0)
+
+    print("P"+str(i)+" gamma = "+str(gamma))
 
     # each processor has its own local redundant copy of z
     z = np.zeros(d)
@@ -36,7 +44,13 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
     wi = np.zeros(d)
     xi = np.zeros(d)
     yi = np.zeros(d)
-
+    
+    # each processor needs empty variables to store phi, sumy
+    phi = np.empty(1)
+    sumy = np.empty(d)
+    xav = np.empty(d)
+    sum_norm_ui_sq = np.zeros(1)
+    
     # processor 0 will plot results
     if i == 0:
         normGrads = []
@@ -47,7 +61,6 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
         ratio_gradz2w = []
 
     norm_sumy_sq = 0.0
-    sum_norm_ui_sq = 0.0
 
     for k in range(iter):
         if i == 0:
@@ -57,27 +70,29 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
                 print("gamma = "+str(gamma))
 
         if adapt_gamma == "residBalanced":
-                gamma = resid_balance(gamma,norm_sumy_sq,sum_norm_ui_sq,size)
+                gamma = resid_balance(gamma,norm_sumy_sq,sum_norm_ui_sq[0],size)
 
         # block update using each processor's slice of the data.
         [xi,yi,rho] = update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
 
         # projection updates
         phi_i = (z - xi).dot(yi - wi) # local contribution to the affine function phi
-        phi = Comm.allreduce(phi_i) # scalar all reduce, summation
-        sumy = Comm.allreduce(yi)   # vector all reduce, summation
+        Comm.Allreduce(np.array(phi_i),phi) # scalar all reduce, summation
+        Comm.Allreduce(yi,sumy)   # vector all reduce, summation
         norm_sumy_sq = np.linalg.norm(sumy,2)**2
-        xav = (1.0/size)*Comm.allreduce(xi) # vector all reduce, summation (average)
+        Comm.Allreduce(xi,xav) 
+        xav = (1.0/size)*xav # vector all reduce, summation (average)
         ui = xi - xav # in this version, we are using the simplified paper formulation of the hyperplane
         norm_ui_sq = np.linalg.norm(ui,2)**2
-        sum_norm_ui_sq = Comm.allreduce(norm_ui_sq) # scalar all reduce
+        Comm.Allreduce(np.array(norm_ui_sq),sum_norm_ui_sq) # scalar all reduce
 
 
 
         if adapt_gamma == "Lipschitz":
             Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
             gammai = Li**2 # local adaptive choice for the primal-dual scaling parameter
-            gamma = Comm.allreduce(gammai)/size # to choose a gamma, take the average across all choices for each block
+            Comm.Allreduce(gammai,gamma) # to choose a gamma, take the average across all choices for each block
+            gamma = gamma/size 
         elif adapt_gamma == "OldBalanced":
             if abs(sum_norm_ui_sq)>1e-20:
                 gamma =  np.sqrt(size*norm_sumy_sq/sum_norm_ui_sq) # this is the original version
@@ -98,7 +113,7 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
 
         if i == 0:
             normGrads.append(normGrad)
-            phis.append(phi)
+            phis.append(phi[0])
             func_vals.append(lasso_val(z,A,b,lam))
             ratio_gradz2w.append(norm_sumy_sq/sum_norm_ui_sq)
             #phis_after.append(phi_after)

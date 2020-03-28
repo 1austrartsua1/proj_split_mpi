@@ -4,7 +4,7 @@ import numpy as np
 A = np.load('A.npy')
 b = np.load('b.npy')
 
-lam = 10.0
+lam = 3e0
 print('lam '+str(lam))
 doPlots = True
 
@@ -12,15 +12,15 @@ doPlots = True
 #[_,s,_] = np.linalg.svd(A)
 #print('largest singular value squared = '+str(s[0]**2))
 
-iter = 1000
+iter = 10000
 
 rho = 1e0
 gamma = 1e4
-adapt_gamma = False
+adapt_gamma = False 
 print('adapt gamma '+str(adapt_gamma))
 
 Delta = 1e0
-psample = -1
+psample = 10
 
 
 
