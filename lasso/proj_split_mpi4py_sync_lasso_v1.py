@@ -1,16 +1,24 @@
-from mpi4py import MPI
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar 30 14:34:11 2020
+
+@author: pjohn
+This is version 1. version 0 is in the same folder.
+"""
+
+
 import numpy as np
 import ps_lasso as ls
 from matplotlib import pyplot as plt
+import cvxpy as cvx 
 
 
-def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
+def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm):
     '''
     projective splitting applied to the lasso problem. This is a synchronous parallel
     version using MPI.
     '''
-
-    Comm = MPI.COMM_WORLD
+    
     i = Comm.Get_rank()
     size  = Comm.Get_size()
 
@@ -37,32 +45,48 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
 
     print("P"+str(i)+" gamma = "+str(gamma))
 
-    # each processor has its own local redundant copy of z
+    # each processor has its own wi and a local redundant copy of z 
     z = np.zeros(d)
-
-    # each processor has its own local (xi,yi) and wi
-    wi = np.zeros(d)
-    xi = np.zeros(d)
-    yi = np.zeros(d)
+    wi = np.zeros(d)   
     
-    # each processor needs empty variables to store phi, sumy
-    phi = np.empty(1)
-    norm_ui_sq = np.empty(1)
-    phi_i = np.empty(1)
-    sumy = np.empty(d)
-    xav = np.empty(d)
-    sum_norm_ui_sq = np.zeros(1)
+    # Each processor computes the projection onto the hyperplane to get the 
+    # next z and w_i. This is slightly redundant but saves communicating 
+    # z and w_i and since the hyperplane projection computation is lightweight, 
+    # it makes sense to do it on each processor and save on communication. 
+    # To compute the projection, we need sum_i y_i, sum_i x_i, sum_i phi_i and sum_i norm(x_i,2)**2
+    # All four of these are computed in a single Allreduce operation. 
+    # local variables are x_i, y_i, phi_i, and normxi_sq. These are stored in 
+    # the buffer local_data. The global variables which are computed by reduction 
+    # are stored in global_data. Here is the format:  
     
+    #sumy          = global_data[0:d]
+    #xav           = global_data[d:2*d]
+    #phi           = global_data[2*d]
+    #sum_normxi_sq = global_data[2*d+1]
+    
+    ind_y = (0,d)
+    ind_x = (d,2*d)
+    ind_phi = 2*d
+    ind_norm_xi_sq = 2*d+1
+    
+    global_data = np.empty(2*d+2)    
+    local_data = np.empty(2*d+2)
+    
+    
+    if adapt_gamma == "residBalanced":
+        # These are needed for the first run of the resid balanced gamma procedure 
+        sum_norm_ui_sq = 0.0
+        norm_sumy_sq = 0.0
+        
     # processor 0 will plot results
     if i == 0:
         normGrads = []
         phis = []
         func_vals = []
-
         print_freq = int(iter/10)
         ratio_gradz2w = []
 
-    norm_sumy_sq = 0.0
+    
 
     for k in range(iter):
         if i == 0:
@@ -72,24 +96,28 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
                 print("gamma = "+str(gamma))
 
         if adapt_gamma == "residBalanced":
-                gamma = resid_balance(gamma,norm_sumy_sq,sum_norm_ui_sq[0],size)
+                gamma = resid_balance(gamma,norm_sumy_sq,sum_norm_ui_sq,size)
 
         # block update using each processor's slice of the data.
-        [xi,yi,rho] = update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
+        [local_data[ind_x[0]:ind_x[1]],local_data[ind_y[0]:ind_y[1]],rho] = \
+            update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
 
-        # projection updates
-        phi_i[0] = (z - xi).dot(yi - wi) # local contribution to the affine function phi
-        Comm.Allreduce(phi_i,phi) # scalar all reduce, summation
-        Comm.Allreduce(yi,sumy)   # vector all reduce, summation
-        norm_sumy_sq = np.linalg.norm(sumy,2)**2
-        Comm.Allreduce(xi,xav) 
-        xav = (1.0/size)*xav # vector all reduce, summation (average)
-        ui = xi - xav # in this version, we are using the simplified paper formulation of the hyperplane
-        norm_ui_sq[0] = np.linalg.norm(ui,2)**2
-        Comm.Allreduce(norm_ui_sq,sum_norm_ui_sq) # scalar all reduce
+        # projection updates    
+        # local contribution to the affine function phi  
+        local_data[ind_phi] = (z - local_data[ind_x[0]:ind_x[1]]).dot(local_data[ind_y[0]:ind_y[1]] - wi)
+        
+        local_data[ind_norm_xi_sq] = np.linalg.norm(local_data[ind_x[0]:ind_x[1]],2)**2 # local contribution to the sum norm(x_i)**2
+        
+        # A single allreduce on the 2*d+2 NumPy buffer to get global_data from local_data 
+        Comm.Allreduce(local_data,global_data)
+        
+        global_data[ind_x[0]:ind_x[1]]  = (1.0/size)*global_data[ind_x[0]:ind_x[1]] 
 
-
-
+        norm_sumy_sq = np.linalg.norm(global_data[ind_y[0]:ind_y[1]],2)**2
+        sum_norm_ui_sq = global_data[ind_norm_xi_sq] - size*np.linalg.norm(global_data[ind_x[0]:ind_x[1]],2)**2
+        
+        ui = local_data[ind_x[0]:ind_x[1]] - global_data[ind_x[0]:ind_x[1]]  # in this version, we are using the simplified paper formulation of the hyperplane
+        
         if adapt_gamma == "Lipschitz":
             Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
             gammai = Li**2 # local adaptive choice for the primal-dual scaling parameter
@@ -104,10 +132,10 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
 
 
         normGrad = gamma**(-1)*norm_sumy_sq + sum_norm_ui_sq
-
+        phi = global_data[ind_phi]
 
         if abs(normGrad)>1e-20:
-            z = z - (gamma**(-1)*phi/normGrad)*sumy
+            z = z - (gamma**(-1)*phi/normGrad)*global_data[ind_y[0]:ind_y[1]]
             wi = wi - (phi/normGrad)*ui
 
         #print("P"+str(i)+" norm z = "+str(np.linalg.norm(z))+", norm wi = "+str(np.linalg.norm(wi)))
@@ -115,8 +143,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
 
         if i == 0:
             normGrads.append(normGrad)
-            phis.append(phi[0])
-            func_vals.append(lasso_val(z,A,b,lam))
+            phis.append(phi)
+            func_vals.append(lasso_val(z,A,b,lam))            
             ratio_gradz2w.append(norm_sumy_sq/sum_norm_ui_sq)
             #phis_after.append(phi_after)
 
@@ -146,6 +174,10 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
             #plt.semilogy(normGrads)
             #plt.title("norm of gradients of phi")
             plt.show()
+    if i == 0:
+        return [func_vals[-1],z]
+    else:
+        return [0.0,z]
 
 def resid_balance(gamma,gradz_sq,gradw_sq,n):
     mu = 10.0
@@ -190,3 +222,17 @@ def update_block(z,wi,rho,Ai,bi,lam,Delta):
 
 
     return [z,z,1.0]
+
+
+def runCVX(A,b,lam):    
+    (_,d) = A.shape 
+    x_cvx = cvx.Variable(d)
+    
+    f = 0.5*cvx.sum_squares(A*x_cvx-b) + lam*cvx.norm(x_cvx,1)    
+    
+    prob = cvx.Problem(cvx.Minimize(f))
+
+    prob.solve(verbose=False)    
+    opt = prob.value
+    xopt = x_cvx.value
+    return [opt,xopt]

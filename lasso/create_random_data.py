@@ -17,3 +17,6 @@ b = np.random.normal(0,sigma,n)
 
 np.save('A.npy',A)
 np.save('b.npy',b)
+np.savetxt('A.txt',A)
+np.savetxt('b.txt',b)
+
