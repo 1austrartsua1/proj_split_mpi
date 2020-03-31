@@ -3,13 +3,29 @@ import numpy as np
 
 
 
-def create_simple_partition(n,nparts):
-    #
+def create_simple_partition_v0(n,nparts):
+    # Note that this version is incompatable with python3! due to the 
+    # extend method no longer being defined by range()
     partsize = int(n/nparts)
     partition = [range(i*partsize,(i+1)*partsize) for i in range(nparts)]
     if n%nparts != 0:
         partition[-1].extend(range(nparts*partsize,n))
     return partition
+
+def create_simple_partition(n,nparts,option='big_last'):    
+    # simplest way to deal with the situation where nparts does not dive n.
+    # Just add the remainder to the final slice. This is not ideal for 
+    # breaking up work for processors as one single processor gets more work
+    # than the others... So try to set num processors as a factor of n. 
+    partsize = int(n/nparts)           
+    partition = [[i*partsize,(i+1)*partsize] for i in range(nparts)]
+    if n%nparts != 0:
+        partition[-1][1] = n
+        
+    
+    return partition
+
+
 
 
 def estimate_pd_scale(A,b,lam,p):

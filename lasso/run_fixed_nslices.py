@@ -1,4 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Mar 31 12:39:09 2020
+
+@author: pjohn
+"""
+
 import proj_split_mpi4py_sync_lasso_v1 as ps_mpi
+import ps_mpi_fixed_slices as psm_fixed
 import numpy as np
 from mpi4py import MPI
 from matplotlib import pyplot as plt
@@ -9,14 +17,17 @@ A = np.load('A.npy')
 b = np.load('b.npy')
 
 lam = 3e0
+nslices = 10
 print('lam '+str(lam))
-doPlots = True  
+doPlots = False  
+runCVX = False 
+Verbose = False            
 
 
 #[_,s,_] = np.linalg.svd(A)
 #print('largest singular value squared = '+str(s[0]**2))
 
-iter = 2000
+iter = 1000
 
 rho = 1e0
 gamma = 1e4
@@ -24,16 +35,21 @@ adapt_gamma = False
 print('adapt gamma '+str(adapt_gamma))
 
 Delta = 1e0
+
 psample = 10
+pid = Comm.Get_rank()
+
+
+tstart = MPI.Wtime()
+[opt_ps,z_ps] = psm_fixed.ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta, 
+                                                  adapt_gamma, doPlots,psample,
+                                                  Comm,nslices,Verbose)
+
+tstart = MPI.Wtime()
 
 
 
-[opt_ps,z_ps] = ps_mpi.ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,psample,Comm)
-
-i = Comm.Get_rank()
-
-runCVX = False    
-if (i == 0) & runCVX:
+if (pid == 0) & runCVX:
     [opt_cvx,x_cvx] = ps_mpi.runCVX(A,b,lam)            
     x_cvx = np.squeeze(np.array(x_cvx))
     print("opt_ps - opt_cvx = "+str(opt_ps - opt_cvx))

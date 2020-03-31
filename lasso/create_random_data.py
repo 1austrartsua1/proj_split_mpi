@@ -1,8 +1,8 @@
 
 import numpy as np
 
-n = 50
-d = 100
+n = 2000
+d = 4000
 #sigma = 1.0/np.sqrt(n)
 sigma = 1.0
 factor = 1.0
@@ -17,6 +17,6 @@ b = np.random.normal(0,sigma,n)
 
 np.save('A.npy',A)
 np.save('b.npy',b)
-np.savetxt('A.txt',A)
-np.savetxt('b.txt',b)
+#np.savetxt('A.txt',A)
+#np.savetxt('b.txt',b)
 

@@ -10,7 +10,7 @@ This is version 1. version 0 is in the same folder.
 import numpy as np
 import ps_lasso as ls
 from matplotlib import pyplot as plt
-import cvxpy as cvx 
+
 
 
 def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm):
@@ -34,7 +34,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm):
             if p != -1:
                 # estimate the primal-dual scaling by sampling p points and measuring ratio
                 # of primal norm to dual norm. If p equals -1, don't do this.
-                av_ratio_sq = ls.estimate_pd_scale(A[partition[i]],b[partition[i]],lam/size,p)
+                av_ratio_sq = \
+                    ls.estimate_pd_scale(A[partition[i][0]:partition[i][1]],b[partition[i][0]:partition[i][1]],lam/size,p)
                 print("P"+str(i)+" the average ratio squared from "+str(p)+" points is "+str(av_ratio_sq))
                 #gamma = (1.0/size)*Comm.Allreduce(av_ratio_sq)
                 gamma = av_ratio_sq
@@ -100,7 +101,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm):
 
         # block update using each processor's slice of the data.
         [local_data[ind_x[0]:ind_x[1]],local_data[ind_y[0]:ind_y[1]],rho] = \
-            update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
+            update_block(z,wi,rho,A[partition[i][0]:partition[i][1]],\
+                         b[partition[i][0]:partition[i][1]],lam/size,Delta)
 
         # projection updates    
         # local contribution to the affine function phi  
@@ -224,7 +226,8 @@ def update_block(z,wi,rho,Ai,bi,lam,Delta):
     return [z,z,1.0]
 
 
-def runCVX(A,b,lam):    
+def runCVX(A,b,lam):  
+    import cvxpy as cvx 
     (_,d) = A.shape 
     x_cvx = cvx.Variable(d)
     
