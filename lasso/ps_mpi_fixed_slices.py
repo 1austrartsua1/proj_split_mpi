@@ -214,7 +214,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
             #plt.semilogy(normGrads)
             #plt.title("norm of gradients of phi")
             plt.show()
-    if (pid == 0) & doPlots:
+    if (pid == 0) & Verbose:
         return [func_vals[-1],z]        
     else:
         return [0.0,z]
