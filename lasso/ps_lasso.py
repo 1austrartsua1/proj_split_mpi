@@ -12,7 +12,7 @@ def create_simple_partition_v0(n,nparts):
         partition[-1].extend(range(nparts*partsize,n))
     return partition
 
-def create_simple_partition(n,nparts,option='big_last'):    
+def create_simple_partition(n,nparts):    
     # simplest way to deal with the situation where nparts does not dive n.
     # Just add the remainder to the final slice. This is not ideal for 
     # breaking up work for processors as one single processor gets more work

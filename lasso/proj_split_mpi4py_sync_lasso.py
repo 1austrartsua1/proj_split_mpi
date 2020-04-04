@@ -76,6 +76,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
 
         # block update using each processor's slice of the data.
         [xi,yi,rho] = update_block(z,wi,rho,A[partition[i]],b[partition[i]],lam/size,Delta)
+            
+
 
         # projection updates
         phi_i[0] = (z - xi).dot(yi - wi) # local contribution to the affine function phi
@@ -146,6 +148,8 @@ def ps_mpi_sync_lasso(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p):
             #plt.semilogy(normGrads)
             #plt.title("norm of gradients of phi")
             plt.show()
+    return [z,func_vals[-1]]
+
 
 def resid_balance(gamma,gradz_sq,gradw_sq,n):
     mu = 10.0
@@ -189,4 +193,3 @@ def update_block(z,wi,rho,Ai,bi,lam,Delta):
 
 
 
-    return [z,z,1.0]

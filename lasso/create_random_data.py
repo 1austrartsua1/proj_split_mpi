@@ -1,8 +1,9 @@
 
 import numpy as np
 
-n = 2000
-d = 4000
+n = 200
+d = 400
+
 #sigma = 1.0/np.sqrt(n)
 sigma = 1.0
 factor = 1.0

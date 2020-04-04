@@ -9,10 +9,10 @@ import numpy as np
 import ps_lasso as ls
 from matplotlib import pyplot as plt
 import proj_split_mpi4py_sync_lasso_v1 as psmpi
+import time 
 
 
-
-def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm,nslices,Verbose):
+def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,Comm,nslices,Verbose,skipProjectStep):
     '''
     projective splitting applied to the lasso problem. This is a synchronous parallel
     version using MPI.
@@ -43,7 +43,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
     # partition of slices 0...nslices-1 into nprocs groups
     # if nprocs does not divide nslices, the last processor is tasked with a smaller number of slices 
     # and all other processors have an equal and larger number of slices
-    part_proc = ls.create_simple_partition(nslices,nprocs,option="small_last")
+    part_proc = ls.create_simple_partition(nslices,nprocs)
     
     if pid == 0:
         if adapt_gamma == "Sample":
@@ -94,7 +94,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
     ind_phi = 2*d
     ind_norm_xi_sq = 2*d+1
     
-    global_data = np.empty(2*d+2) # the processor's own local copy of the globally shared data (sumy,sumx,phi,sum_norm_xi_sq)    
+    global_data = np.zeros(2*d+2) # the processor's own local copy of the globally shared data (sumy,sumx,phi,sum_norm_xi_sq)    
     local_data = np.zeros(2*d+2) # will be the local sum of the local variables 
     
     
@@ -110,6 +110,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
         func_vals = []
         print_freq = int(iter/10)
         ratio_gradz2w = []
+        tblocks = []
 
     
 
@@ -125,75 +126,88 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
 
 
         # Now loop over all slices under the domain of control of this processor 
+        t0 = time.time()
         for i in range(pid_num_slices):
         
             # block update using each processor's slice of the data.
             this_slice = part_proc[pid][0] + i
-            [x[i],newy,rho] = \
+           
+            [x[i],y,rho] = \
                 psmpi.update_block(z,w[i],rho,A[part_ind[this_slice][0]:part_ind[this_slice][1]],\
                              b[part_ind[this_slice][0]:part_ind[this_slice][1]],lam/nslices,Delta)
+                
+         
+                
             if i == 0:
                 # first slice, rewrite local data 
-                local_data[ind_x[0]:ind_x[1]] = x[i]
-                local_data[ind_y[0]:ind_y[1]] = newy
-                local_data[ind_phi] = (z - x[i]).dot(newy - w[i])
+                local_data[ind_y[0]:ind_y[1]] = y
+                local_data[ind_x[0]:ind_x[1]] = x[i]                
+                local_data[ind_phi] = (z - x[i]).dot(y - w[i])
                 local_data[ind_norm_xi_sq] = np.linalg.norm(x[i],2)**2    
             else:
                 # keep track of sum 
                 local_data[ind_x[0]:ind_x[1]] += x[i]
-                local_data[ind_y[0]:ind_y[1]] += newy
-                local_data[ind_phi] += (z - x[i]).dot(newy - w[i])
+                local_data[ind_y[0]:ind_y[1]] += y
+                local_data[ind_phi] += (z - x[i]).dot(y - w[i])
                 local_data[ind_norm_xi_sq] += np.linalg.norm(x[i],2)**2  
             
-        
+        t1 = time.time()
+        if pid == 0:
+            tblocks.append(t1-t0)
+            
         # projection updates
         # in this version, we are using the simplified paper formulation of the hyperplane                    
         # which uses the average over the xis. This is more convenient for a symmetric 
         # distributed implementation, easier to put in SPMD form. 
         # A single allreduce on the 2*d+2 NumPy buffer to get global_data from local_data 
-        Comm.Allreduce(local_data,global_data)
         
-        global_data[ind_x[0]:ind_x[1]]  = (1.0/nslices)*global_data[ind_x[0]:ind_x[1]] # this is xbar, the average over xi for all slices  
+        if skipProjectStep == False:
+            Comm.Allreduce(local_data,global_data)
+            
+            global_data[ind_x[0]:ind_x[1]]  = (1.0/nslices)*global_data[ind_x[0]:ind_x[1]] # this is xbar, the average over xi for all slices  
+    
+            norm_sumy_sq = np.linalg.norm(global_data[ind_y[0]:ind_y[1]],2)**2
+            sum_norm_ui_sq = global_data[ind_norm_xi_sq] - nslices*np.linalg.norm(global_data[ind_x[0]:ind_x[1]],2)**2
+            
+            
+            
+            if adapt_gamma == "Lipschitz":
+                Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
+                gammai = Li**2 # local adaptive choice for the primal-dual scaling parameter
+                Comm.Allreduce(gammai,gamma) # XX incorrect to choose a gamma, take the average across all choices for each block
+                gamma = gamma/nslices 
+            elif adapt_gamma == "OldBalanced":
+                if abs(sum_norm_ui_sq)>1e-20:
+                    gamma =  np.sqrt(nslices*norm_sumy_sq/sum_norm_ui_sq) # this is the original version
+            elif adapt_gamma == "NewBalanced":
+                if abs(sum_norm_ui_sq)>1e-20:
+                    gamma =  (nslices*norm_sumy_sq/sum_norm_ui_sq) # new version using eta conversion.
+    
+    
+            normGrad = gamma**(-1)*norm_sumy_sq + sum_norm_ui_sq
+            phi = global_data[ind_phi]
+    
+            if abs(normGrad)>1e-20:
+                z = z - (gamma**(-1)*phi/normGrad)*global_data[ind_y[0]:ind_y[1]]
+                w = w - (phi/normGrad)*(x - global_data[ind_x[0]:ind_x[1]])
+            
 
-        norm_sumy_sq = np.linalg.norm(global_data[ind_y[0]:ind_y[1]],2)**2
-        sum_norm_ui_sq = global_data[ind_norm_xi_sq] - nslices*np.linalg.norm(global_data[ind_x[0]:ind_x[1]],2)**2
-        
-        
-        
-        if adapt_gamma == "Lipschitz":
-            Li = 1.0/rho # local estimate for the Lipschitz constant of this loss slice
-            gammai = Li**2 # local adaptive choice for the primal-dual scaling parameter
-            Comm.Allreduce(gammai,gamma) # XX incorrect to choose a gamma, take the average across all choices for each block
-            gamma = gamma/nslices 
-        elif adapt_gamma == "OldBalanced":
-            if abs(sum_norm_ui_sq)>1e-20:
-                gamma =  np.sqrt(nslices*norm_sumy_sq/sum_norm_ui_sq) # this is the original version
-        elif adapt_gamma == "NewBalanced":
-            if abs(sum_norm_ui_sq)>1e-20:
-                gamma =  (nslices*norm_sumy_sq/sum_norm_ui_sq) # new version using eta conversion.
 
-
-        normGrad = gamma**(-1)*norm_sumy_sq + sum_norm_ui_sq
-        phi = global_data[ind_phi]
-
-        if abs(normGrad)>1e-20:
-            z = z - (gamma**(-1)*phi/normGrad)*global_data[ind_y[0]:ind_y[1]]
-            w = w - (phi/normGrad)*(x - global_data[ind_x[0]:ind_x[1]])
-        
-
-
-        if (pid == 0) & Verbose:
-            normGrads.append(normGrad)
-            phis.append(phi)
-            if doPlots:
-                func_vals.append(psmpi.lasso_val(z,A,b,lam))            
-                
-            ratio_gradz2w.append(norm_sumy_sq/sum_norm_ui_sq)
+            if (pid == 0) & Verbose:
+                normGrads.append(normGrad)
+                phis.append(phi)
+                if doPlots:
+                    func_vals.append(psmpi.lasso_val(z,A,b,lam))            
+                    
+                ratio_gradz2w.append(norm_sumy_sq/sum_norm_ui_sq)
            
     
     
-    
-
+    if pid == 0:
+        plt.plot(tblocks)
+        plt.title('tblocks')
+        plt.show()
+            
     if (pid == 0) & Verbose:
         print("-------------------------------------------")
         nnz = sum(abs(z)>1e-10)
@@ -201,6 +215,8 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
         
         if doPlots & Verbose:
             print("final function value "+str(func_vals[-1]))
+            
+            
             plt_iter = iter
             fig,ax = plt.subplots(2,2)
             ax[0,0].plot(func_vals[0:plt_iter])
@@ -214,7 +230,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
             #plt.semilogy(normGrads)
             #plt.title("norm of gradients of phi")
             plt.show()
-    if (pid == 0) & Verbose:
+    if (pid == 0) & doPlots & Verbose:
         return [func_vals[-1],z]        
     else:
         return [0.0,z]
