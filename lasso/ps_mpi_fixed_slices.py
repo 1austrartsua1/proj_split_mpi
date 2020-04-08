@@ -110,7 +110,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
         func_vals = []
         print_freq = int(iter/10)
         ratio_gradz2w = []
-        tblocks = []
+        
 
     
 
@@ -126,7 +126,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
 
 
         # Now loop over all slices under the domain of control of this processor 
-        t0 = time.time()
+        
         for i in range(pid_num_slices):
         
             # block update using each processor's slice of the data.
@@ -142,7 +142,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
                 # first slice, rewrite local data 
                 local_data[ind_y[0]:ind_y[1]] = y
                 local_data[ind_x[0]:ind_x[1]] = x[i]                
-                local_data[ind_phi] = (z - x[i]).dot(y - w[i])
+                local_data[ind_phi] = (z - x[i]).dot(y- w[i])
                 local_data[ind_norm_xi_sq] = np.linalg.norm(x[i],2)**2    
             else:
                 # keep track of sum 
@@ -151,9 +151,8 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
                 local_data[ind_phi] += (z - x[i]).dot(y - w[i])
                 local_data[ind_norm_xi_sq] += np.linalg.norm(x[i],2)**2  
             
-        t1 = time.time()
-        if pid == 0:
-            tblocks.append(t1-t0)
+        
+            
             
         # projection updates
         # in this version, we are using the simplified paper formulation of the hyperplane                    
@@ -203,10 +202,7 @@ def ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta,adapt_gamma, doPlots,p,
            
     
     
-    if pid == 0:
-        plt.plot(tblocks)
-        plt.title('tblocks')
-        plt.show()
+   
             
     if (pid == 0) & Verbose:
         print("-------------------------------------------")

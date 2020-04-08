@@ -143,7 +143,7 @@ def ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,it
             ax[1,1].set_title("norm of hplane grads")                        
             plt.show()
     
-        return func_vals[-1]
+            return func_vals[-1]
         
             
 

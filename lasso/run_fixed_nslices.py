@@ -6,8 +6,7 @@ Created on Tue Mar 31 12:39:09 2020
 """
 
 import proj_split_mpi4py_sync_lasso_v1 as ps_mpi
-#import ps_mpi_fixed_slices as psm_fixed
-import ps_fixed_optimized as psm_fixed
+import ps_mpi_fixed_slices as psm_fixed
 import numpy as np
 from mpi4py import MPI
 
@@ -20,10 +19,10 @@ b = np.load('b.npy')
 lam = 3e0
 nslices = 10
 print('lam '+str(lam))
-doPlots = False     
+doPlots = False      
 runCVX = False 
 Verbose = True
-skipProjectStep = True              
+skipProjectStep = False               
 
 
 #[_,s,_] = np.linalg.svd(A)
@@ -32,7 +31,7 @@ skipProjectStep = True
 iter = 1000
 
 rho = 1e0
-gamma = 1e4
+gamma = 1e5
 adapt_gamma = False 
 print('adapt gamma '+str(adapt_gamma))
 
@@ -43,14 +42,9 @@ pid = Comm.Get_rank()
 
 
 
-#[opt_ps,z_ps] = psm_fixed.ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta, 
-#                                                  adapt_gamma, doPlots,psample,
-#                                                  Comm,nslices,Verbose,skipProjectStep)
-(n,d) = A.shape 
-nprocs = 10
-[opt_ps,z_ps] = psm_fixed.ps_mpi_sync_lasso_fixed(iter,n,d,lam,rho,gamma,Delta, 
+[opt_ps,z_ps] = psm_fixed.ps_mpi_sync_lasso_fixed(iter,A,b,lam,rho,gamma,Delta, 
                                                   adapt_gamma, doPlots,psample,
-                                                  nslices,Verbose,skipProjectStep,nprocs)
+                                                  Comm,nslices,Verbose,skipProjectStep)
 
 
 
