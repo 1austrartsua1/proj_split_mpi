@@ -33,18 +33,18 @@ rho0 = 1e0
 gamma = 1e6
 Delta = 1e0
 
-if (pid == 0):
+if (pid == 0) & runCVX:
     
-    if runCVX:
-        opt_ps = ps.ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,iterations)
-        [opt_cvx,x_cvx] = ps_mpi.runCVX(A,b,lam)            
-        x_cvx = np.squeeze(np.array(x_cvx))
-        print("opt_ps - opt_cvx = "+str(opt_ps - opt_cvx))
-        print('cvx nonzeros = '+str(sum(abs(x_cvx)>1e-6)))
-    else:
-        ps.ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,iterations)
+    
+    opt_ps = ps.ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,iterations)
+    [opt_cvx,x_cvx] = ps_mpi.runCVX(A,b,lam)            
+    x_cvx = np.squeeze(np.array(x_cvx))
+    print("opt_ps - opt_cvx = "+str(opt_ps - opt_cvx))
+    print('cvx nonzeros = '+str(sum(abs(x_cvx)>1e-6)))
+            
 else:
     ps.ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,iterations)
+    
     
     
     

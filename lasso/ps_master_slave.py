@@ -40,6 +40,7 @@ def ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,it
     part_ind = ls.create_simple_partition(n,nslices) # partitition the indices 0...n-1 into nslices groups
     part_proc = ls.create_simple_partition(nslices,nslaves) # partitition the slices into nslaves groups
     
+    # count and displacements are used in the scatter/gather communications
     count = [0]
     displacements = [0]
     for i in range(1,len(part_proc)+1):
@@ -68,6 +69,8 @@ def ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,it
         local_data = np.zeros(2*d+2)
         
 
+    # local and global data are 2d+2 length buffers storing y,x,phi, and norm xi sq   
+    # below are the indices for each data segment
     ind_y = (0,d)
     ind_x = (d,2*d)
     ind_phi = 2*d
@@ -93,8 +96,11 @@ def ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,it
                 print("iter "+str(k))
                 
                 
-        # root node sends data to all the slaves (bcast z followed by scatterV w)
+        # root node sends z to all the slaves 
         Comm.Bcast(z,root=0)
+        
+        # root node sends the appropriate w to each slave. Scatterv because
+        # variable amounts. Each slave might have a different number of w. 
         
         Comm.Scatterv([w,count,displacements,MPI.DOUBLE],wLoc)
                     
@@ -110,16 +116,15 @@ def ps_sync_masterslave(Comm,A,b,nslices,Verbose,rho0,Delta,lam,doPlots,gamma,it
         Comm.Reduce(local_data,global_data,root = 0)  
              
         # Perform a Gatherv to get x at the root node. 
+        # Gatherv because there are variable amounts of data at each slave. 
         Comm.Gatherv(xLoc,[x,count,displacements,MPI.DOUBLE])
       
-        
-        
+                
         # Perform hplane projection
         if pid == 0:                          
             [z,w,normGrad,phi] = hplaneProject(global_data,ind_x,nslices,ind_y,
                                                ind_norm_xi_sq,gamma,ind_phi,z,w,x)
-
-        
+            
             if doPlots:
                 normGrads.append(normGrad)
                 phis.append(phi)                
