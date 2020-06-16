@@ -1,4 +1,4 @@
-#proj_split_mpi: a Parallel Implementation of Projective Splitting for the Lasso
+# proj_split_mpi: a Parallel Implementation of Projective Splitting for the Lasso
 
 This is a parallel implementation of the projective splitting algorithm, as seen 
 here: ) using MPI (mpi4py in Python).
