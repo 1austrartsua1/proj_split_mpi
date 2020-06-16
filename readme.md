@@ -1,11 +1,11 @@
 # proj_split_mpi: a Parallel Implementation of Projective Splitting for the Lasso
 
 This is a parallel implementation of the projective splitting algorithm, as seen 
-here: ) using MPI (mpi4py in Python).
+here: https://arxiv.org/abs/1803.07043) using MPI (mpi4py in Python).
 
-To use this, you need to install mpi4py (see here: )
+To use this, you need to install mpi4py (see here: https://mpi4py.readthedocs.io/en/stable/)
 
-To run a script
+To run a script with mpi4py 
 mpirun -n 4 python name_of_script.py
 
 This will launch 4 MPI processes. 
